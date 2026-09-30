@@ -157,74 +157,92 @@
         </div>
 
     </div>
-    <script>
+        <script>
         let ws;
         let currentChannel = "vgor74";
+        let demoInterval; // Таймер для демо-режима
         
-        // Открытая и стабильная база смайлов Twitch через глобальный CDN
-        const emoteDatabase = {
-            "vgor74Lemon": "https://jtvnw.net", 
-            "vgor741": "https://jtvnw.net",
-            "Kappa": "https://jtvnw.net",
-            "LUL": "https://jtvnw.net",
-            "PogChamp": "https://jtvnw.net"
-        };
-
-        // Чтение параметров из URL-строки (для OBS)
         const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('obs')) {
-            document.body.classList.add('obs-mode');
-            
-            // Вытаскиваем переданные настройки из ссылки
-            const size = urlParams.get('size') || '17px';
-            const family = urlParams.get('font') || "'Segoe UI', sans-serif";
-            const margin = urlParams.get('margin') || '6px';
-            const align = urlParams.get('align') || 'left';
-            const color = urlParams.get('color') || '#ffffff';
-            
-            // Жестко применяем стили внутри OBS поверх любых других настроек
-            let styleElement = document.createElement('style');
-            styleElement.innerHTML = `
-                .message, .message span.text-body { font-size: ${size} !important; font-family: ${family} !important; color: ${color} !important; }
-                .message { margin-bottom: ${margin} !important; text-align: ${align} !important; }
-                body, html { background: transparent !important; background-color: transparent !important; }
-            `;
-            document.head.appendChild(styleElement);
+        const isObsMode = urlParams.has('obs');
 
+        if (isObsMode) {
+            document.body.classList.add('obs-mode');
             const autoChannel = urlParams.get('channel');
             if (autoChannel) {
-                setTimeout(function() { startSession(autoChannel); }, 500);
+                currentChannel = autoChannel;
             }
+            initWebSocket();
         }
 
-        // Обновление URL-ссылки для OBS при изменении любых параметров кастомизации
-        function updateObsLink() {
-            if (document.body.classList.contains('obs-mode')) return; 
+        function initWebSocket() {
+            // Пытаемся подключиться к локальному серверу Python
+            ws = new WebSocket("ws://localhost:8765");
+            
+            ws.onopen = function() {
+                clearInterval(demoInterval); // Выключаем демо, если нашелся настоящий сервер
+                if (!isObsMode) {
+                    document.getElementById('auth-section').style.display = 'none';
+                    const chatWindow = document.getElementById('chat-window');
+                    chatWindow.style.display = 'block';
+                    chatWindow.innerHTML = '<div class="message system-text">🔗 Подключение к Python установлено...</div>';
+                    showObsLinkField();
+                    applySettings(); 
+                }
+                ws.send(JSON.stringify({"action": "connect", "channel": currentChannel}));
+            };
 
-            const size = document.getElementById('font-size').value;
-            const family = document.getElementById('font-family').value;
-            const margin = document.getElementById('margin-bottom').value;
-            const align = document.getElementById('text-align').value;
-            const color = encodeURIComponent(document.getElementById('text-color').value);
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === "settings") {
+                    renderStyles(data.settings);
+                } 
+                else if (data.type === "chat") {
+                    addMessageToChat(data.username, data.text);
+                }
+            };
             
-            const cleanUrl = window.location.href.split('?')[0];
-            const obsUrl = cleanUrl + '?obs=true&channel=' + currentChannel + '&size=' + size + '&font=' + family + '&margin=' + margin + '&align=' + align + '&color=' + color;
-            
-            const inputField = document.getElementById("obs-url-input");
-            if (inputField) {
-                inputField.value = obsUrl;
-            }
+            ws.onerror = function() {
+                // Если сервер Python не запущен или недоступен (как у друга), включаем ДЕМО-РЕЖИМ
+                startDemoMode();
+            };
         }
 
-        function applySettings() {
-            const size = document.getElementById('font-size').value;
-            const family = document.getElementById('font-family').value;
-            const margin = document.getElementById('margin-bottom').value;
-            const align = document.getElementById('text-align').value;
-            const color = document.getElementById('text-color').value;
-            
-            document.getElementById('color-hex').innerText = color.toUpperCase();
+        // Функция запуска имитации чата для друга
+        function startDemoMode() {
+            clearInterval(demoInterval);
+            if (!isObsMode) {
+                document.getElementById('auth-section').style.display = 'none';
+                const chatWindow = document.getElementById('chat-window');
+                chatWindow.style.display = 'block';
+                chatWindow.innerHTML = '<div class="message system-text" style="color:#ffb703;">⚠️ Сервер на ПК не найден. Включен автономный демо-режим Galen Chat</div>';
+                showObsLinkField();
+                applySettings();
+            }
 
+            const simUsers = ["Alex_Gamer", "Cyber_Katya", "Buster_Fan", "Danil_10", "Sofia_Spb", "Witcher"];
+            const simTexts = ["Всем привет!", "Стрим лагает?", "Galen Chat круто выглядит! 🔥", "Какая сегодня игра?", "Модеры, чекните лс", "Ура, я успел на стрим!"];
+
+            demoInterval = setInterval(function() {
+                const randomUser = simUsers[Math.floor(Math.random() * simUsers.length)];
+                const randomText = simTexts[Math.floor(Math.random() * simTexts.length)];
+                addMessageToChat(randomUser, randomText);
+            }, 1500);
+        }
+
+        function addMessageToChat(username, text) {
+            const chatWindow = document.getElementById('chat-window');
+            if (!chatWindow) return;
+            
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message';
+            msgDiv.innerHTML = '<span class="username" style="color:' + getRandomColor(username) + '">' + username + ':</span> <span class="text-body">' + text + '</span>';
+            
+            chatWindow.appendChild(msgDiv);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function renderStyles(settings) {
             let styleElement = document.getElementById('dynamic-chat-styles');
             if (!styleElement) {
                 styleElement = document.createElement('style');
@@ -232,69 +250,49 @@
                 document.head.appendChild(styleElement);
             }
             styleElement.innerHTML = `
-                .message, .message span.text-body { font-size: ${size} !important; font-family: ${family} !important; color: ${color} !important; }
-                .message { margin-bottom: ${margin} !important; text-align: ${align} !important; }
+                .message, .message span.text-body { font-size: ${settings.size} !important; font-family: ${settings.font} !important; color: ${settings.color} !important; }
+                .message { margin-bottom: ${settings.margin} !important; text-align: ${settings.align} !important; }
+                body, html { background: transparent !important; background-color: transparent !important; }
             `;
             
-            updateObsLink();
+            if (!isObsMode) {
+                document.getElementById('color-hex').innerText = settings.color.toUpperCase();
+            }
         }
 
-        function parseEmotes(text) {
-            let words = text.split(' ');
-            for (let i = 0; i < words.length; i++) {
-                if (emoteDatabase[words[i]]) {
-                    words[i] = '<img class="twitch-emote" src="' + emoteDatabase[words[i]] + '" alt="' + words[i] + '">';
-                }
+        function applySettings() {
+            if (isObsMode) return;
+
+            const settings = {
+                size: document.getElementById('font-size').value,
+                font: document.getElementById('font-family').value,
+                margin: document.getElementById('margin-bottom').value,
+                align: document.getElementById('text-align').value,
+                color: document.getElementById('text-color').value
+            };
+
+            renderStyles(settings);
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    "action": "update_styles",
+                    "settings": settings
+                }));
             }
-            return words.join(' ');
         }
 
         function connectToBackend() {
             const channelName = document.getElementById('twitch-channel').value.trim();
             if (channelName === "") { alert("Введите никнейм канала!"); return; }
             currentChannel = channelName;
-            startSession(channelName);
-        }
-
-        function startSession(channelName) {
-            ws = new WebSocket("ws://localhost:8765");
-            
-            ws.onopen = function() {
-                if (!document.body.classList.contains('obs-mode')) {
-                    document.getElementById('auth-section').style.display = 'none';
-                }
-                const chatWindow = document.getElementById('chat-window');
-                chatWindow.style.display = 'block';
-                chatWindow.innerHTML = '<div class="message system-text">🔗 Подключение установлено...</div>';
-                
-                if (!document.body.classList.contains('obs-mode')) {
-                    applySettings();
-                    showObsLinkField();
-                }
-                ws.send(JSON.stringify({"action": "connect", "channel": channelName}));
-            };
-
-            ws.onmessage = function(event) {
-                const data = JSON.parse(event.data);
-                const chatWindow = document.getElementById('chat-window');
-                
-                const msgDiv = document.createElement('div');
-                msgDiv.className = 'message';
-                
-                const processedText = parseEmotes(data.text);
-                msgDiv.innerHTML = '<span class="username" style="color:' + getRandomColor(data.username) + '">' + data.username + ':</span> <span class="text-body">' + processedText + '</span>';
-                
-                chatWindow.appendChild(msgDiv);
-                chatWindow.scrollTop = chatWindow.scrollHeight;
-            };
-            
-            ws.onclose = function() {
-                alert("🔴 Соединение разорвано. Проверь, запущен ли server.py!");
-            };
+            initWebSocket();
         }
 
         function showObsLinkField() {
             if (document.getElementById('obs-link-container')) return;
+
+            const cleanUrl = window.location.href.split('?');
+            const obsUrl = cleanUrl[0] + '?obs=true&channel=' + currentChannel;
 
             const linkDiv = document.createElement('div');
             linkDiv.id = 'obs-link-container';
@@ -304,19 +302,18 @@
             linkDiv.style.borderRadius = '6px';
             linkDiv.style.border = '1px solid #333';
             
-            linkDiv.innerHTML = '<label style="font-size:11px; color:#adadb8; display:block; margin-bottom:5px;">Ссылка для вставки в OBS:</label>' +
-                '<input type="text" id="obs-url-input" value="" readonly style="padding:6px; font-size:12px; margin-bottom:8px; width:94%; background-color:#2a2a2d; color:#fff; border:1px solid #444; border-radius:4px;">' +
+            linkDiv.innerHTML = '<label style="font-size:11px; color:#adadb8; display:block; margin-bottom:5px;">Универсальная ссылка для OBS:</label>' +
+                '<input type="text" id="obs-url-input" value="' + obsUrl + '" readonly style="padding:6px; font-size:12px; margin-bottom:8px; width:94%; background-color:#2a2a2d; color:#fff; border:1px solid #444; border-radius:4px;">' +
                 '<button onclick="copyObsUrl()" style="padding:6px; font-size:12px; background-color:#a970ff; width:100%; font-weight:bold; color:#fff; border:none; border-radius:4px; cursor:pointer;">📋 Скопировать ссылку</button>';
             
             document.querySelector('.chat-container').appendChild(linkDiv);
-            updateObsLink();
         }
 
         function copyObsUrl() {
             const copyText = document.getElementById("obs-url-input");
             copyText.select();
             navigator.clipboard.writeText(copyText.value);
-            alert("Ссылка для OBS успешно скопирована! Замени ей старую ссылку в OBS.");
+            alert("Ссылка скопирована! Вставь её в ОБС один раз — и меняй настройки на ходу!");
         }
 
         function getRandomColor(username) {
